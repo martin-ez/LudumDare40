@@ -11,10 +11,17 @@ public class StationMaster : MonoBehaviour
 
     void Start()
     {
-        if (stops.Length != 0)
+        for (int i = 0; i<stops.Length; i++)
         {
-            stops[0].OnPickup += OnPickup;
-            stops[0].SetActive(true);
+            if(i == 0)
+            {
+                stops[i].OnPickup += OnPickup;
+                stops[i].SetActive(true);
+            }
+            else
+            {
+                stops[i].SetActive(false);
+            }
         }
     }
 
@@ -35,7 +42,7 @@ public class StationMaster : MonoBehaviour
     {
         if (other.gameObject.CompareTag("Bus") && finish)
         {
-            FindObjectOfType<Bus>().FinishLevel();
+            other.gameObject.GetComponent<Bus>().FinishLevel();
         }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 
 public class Bus : MonoBehaviour
 {
@@ -26,6 +27,7 @@ public class Bus : MonoBehaviour
     public Text stopsText;
     public Text lengthText;
     public Text countdown;
+    public Text options;
 
     [Header("Level Info")]
     public int level;
@@ -49,7 +51,11 @@ public class Bus : MonoBehaviour
     private int passengers;
     private Color statusColor;
     private StatusMessages statusMes;
-    public System.Action OnDeath;
+
+    private int difficulty = 0;
+
+    private AudioManager audioManager;
+    public GameObject explosion;
 
     public enum BusState
     {
@@ -66,14 +72,17 @@ public class Bus : MonoBehaviour
         passengers = 0;
         statusColor = new Color(73, 238, 21, 1);
         noPassengers.text = (passengers < 10 ? "0" : "") + passengers;
+        multiplierText.text = "x1";
         rb = GetComponent<Rigidbody>();
         drive = GetComponent<RearWheelDrive>();
         statusMes = GetComponent<StatusMessages>();
+        audioManager = FindObjectOfType<AudioManager>();
 
         foreach (GameObject group in passengerGroups)
         {
             group.SetActive(false);
         }
+
         drive.Toggle();
         StartCoroutine(LevelStart());
     }
@@ -103,6 +112,7 @@ public class Bus : MonoBehaviour
         state = BusState.Pickup;
         drive.Toggle();
         StartCoroutine(StatsOpen());
+        audioManager.PlaySound(AudioManager.Sound.Stop);
     }
 
     public void ExitStation()
@@ -110,6 +120,8 @@ public class Bus : MonoBehaviour
         state = BusState.Drive;
         drive.Toggle();
         StartCoroutine(StatsClose());
+        difficulty++;
+        SetDifficulty(difficulty);
     }
 
     public void AddPassenger()
@@ -117,29 +129,13 @@ public class Bus : MonoBehaviour
         passengers++;
         status.text = statusMes.GetMessage(passengers);
         noPassengers.text = (passengers < 10 ? "0" : "") + passengers;
-        if (passengers == 60)
-        {
-            SetDifficulty(0);
-        }
-        if (passengers == 100)
-        {
-            SetDifficulty(1);
-        }
-        if (passengers == 130)
-        {
-            SetDifficulty(2);
-        }
-        if (passengers == 180)
-        {
-            SetDifficulty(3);
-        }
     }
 
     public void FinishLevel()
     {
         drive.Toggle();
         state = BusState.Finish;
-        StartCoroutine(LevelEnd());
+        StartCoroutine(LevelEnd(time, passengers));
     }
 
     public float GetVelocity()
@@ -154,8 +150,27 @@ public class Bus : MonoBehaviour
 
     void SetDifficulty(int level)
     {
-        passengerGroups[level].SetActive(true);
-        passengerGroups[level].GetComponent<CharacterFlip>().Dance();
+        if (level < 4)
+        {
+            passengerGroups[level].SetActive(true);
+            passengerGroups[level].GetComponent<CharacterFlip>().Dance();
+            audioManager.SetVolume(level + 1);
+            StartCoroutine(GearAnimation());
+            multiplierText.text = "x" + (level + 1);
+
+            switch (level)
+            {
+                case 1:
+                    drive.maxTorque = 800;
+                    break;
+                case 2:
+                    drive.maxTorque = 1100;
+                    break;
+                case 3:
+                    drive.maxTorque = 1500;
+                    break;
+            }
+        }
     }
 
     void OnCollisionEnter(Collision col)
@@ -175,17 +190,26 @@ public class Bus : MonoBehaviour
 
             if (damage != 0)
             {
-                invulnerable = true;
-                damageIndicator.fillAmount = health;
-                health -= damage;
-                if (health < 0)
-                {
-                    health = 0;
-                    if (OnDeath != null) OnDeath();
-                }
-                healthBar.fillAmount = health;
-                StartCoroutine(DamageRoutine());
+                TakeDamage(damage);
             }
+        }
+    }
+
+    public void TakeDamage(float damage)
+    {
+        if (state == BusState.Drive && !invulnerable)
+        {
+            audioManager.PlaySound(AudioManager.Sound.Crash);
+            invulnerable = true;
+            damageIndicator.fillAmount = health;
+            health -= damage;
+            if (health < 0)
+            {
+                health = 0;
+                Die();
+            }
+            healthBar.fillAmount = health;
+            StartCoroutine(DamageRoutine());
         }
     }
 
@@ -199,6 +223,7 @@ public class Bus : MonoBehaviour
         stopsText.rectTransform.position = new Vector3(rigth, stopsText.rectTransform.position.y, stopsText.rectTransform.position.z);
         lengthText.text = length + " km";
         lengthText.rectTransform.position = new Vector3(rigth, lengthText.rectTransform.position.y, lengthText.rectTransform.position.z);
+        options.rectTransform.position = new Vector3(rigth, options.rectTransform.position.y, options.rectTransform.position.z);
         canvasbg.fillAmount = 0;
         countdown.gameObject.SetActive(false);
         yield return new WaitForSeconds(1);
@@ -282,16 +307,21 @@ public class Bus : MonoBehaviour
         }
     }
 
-    private IEnumerator LevelEnd()
+    private IEnumerator LevelEnd(float timeUsed, float passengersTravel)
     {
         float center = Screen.width / 2;
         float rigth = Screen.width * 2;
-        levelText.text = "Level " + level+ " Completed!";
+        levelText.text = "Level Completed!";
         levelText.rectTransform.position = new Vector3(rigth, levelText.rectTransform.position.y, levelText.rectTransform.position.z);
-        stopsText.text = noStops + " stops";
+
+        int seconds = (int)(timeUsed % 60);
+        int minutes = (int)((timeUsed - seconds) / 60);
+        string displayTime = (minutes < 10 ? "0" : "") + minutes + ":" + (seconds < 10 ? "0" : "") + seconds;
+        stopsText.text = "Time: " + displayTime;
         stopsText.rectTransform.position = new Vector3(rigth, stopsText.rectTransform.position.y, stopsText.rectTransform.position.z);
-        lengthText.text = length + " km";
+        lengthText.text = "Passengers: " + passengersTravel;
         lengthText.rectTransform.position = new Vector3(rigth, lengthText.rectTransform.position.y, lengthText.rectTransform.position.z);
+        options.rectTransform.position = new Vector3(rigth, options.rectTransform.position.y, options.rectTransform.position.z);
         canvasbg.fillAmount = 0;
         countdown.gameObject.SetActive(false);
 
@@ -308,10 +338,11 @@ public class Bus : MonoBehaviour
         canvasbg.fillAmount = 1;
 
         Text text = levelText;
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < 4; i++)
         {
             if (i == 1) text = stopsText;
             if (i == 2) text = lengthText;
+            if (i == 3) text = options;
             //Text Appear
             t = 0;
             time = 0;
@@ -324,6 +355,19 @@ public class Bus : MonoBehaviour
             }
             text.rectTransform.position = new Vector3(center, text.rectTransform.position.y, text.rectTransform.position.z);
             yield return new WaitForSeconds(0.25f);
+        }
+
+        while (true)
+        {
+            if (Input.GetKey(KeyCode.Escape))
+            {
+                Application.Quit();
+            }
+            if (Input.GetKey(KeyCode.R))
+            {
+                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+            }
+            yield return null;
         }
     }
 
@@ -435,5 +479,88 @@ public class Bus : MonoBehaviour
             yield return null;
         }
         bg.fillAmount = 0.3f;
+    }
+
+    private IEnumerator GearAnimation()
+    {
+        float time = 0;
+        float t = 0;
+        float start = gearIndicator.fillAmount;
+        float end = start + 0.25f;
+        while (t < 1)
+        {
+            time += Time.deltaTime;
+            t = Mathf.InverseLerp(0, 0.35f, time);
+            gearIndicator.fillAmount = Mathf.Lerp(start, end, t);
+            yield return null;
+        }
+
+        gearIndicator.fillAmount = end;
+    }
+
+    private void Die()
+    {
+        state = BusState.Finish;
+        StopAllCoroutines();
+        GameObject exp = Instantiate(explosion);
+        exp.transform.position = transform.position;
+        Destroy(exp, 1);
+        Destroy(transform.Find("Model").gameObject);
+        Destroy(transform.Find("Passengers").gameObject);
+        StartCoroutine(DeathScreen());
+    }
+
+    private IEnumerator DeathScreen()
+    {
+        float center = Screen.width / 2;
+        float rigth = Screen.width * 2;
+        levelText.text = "Level Failed!";
+        levelText.rectTransform.position = new Vector3(rigth, levelText.rectTransform.position.y, levelText.rectTransform.position.z);
+        options.rectTransform.position = new Vector3(rigth, options.rectTransform.position.y, options.rectTransform.position.z);
+        canvasbg.fillAmount = 0;
+        countdown.gameObject.SetActive(false);
+
+        //BG Appear
+        float t = 0;
+        float time = 0;
+        while (t < 1)
+        {
+            time += Time.deltaTime;
+            t = Mathf.InverseLerp(0, 0.25f, time);
+            canvasbg.fillAmount = t;
+            yield return null;
+        }
+        canvasbg.fillAmount = 1;
+
+        Text text = levelText;
+        for (int i = 0; i < 2; i++)
+        {
+            if (i == 1) text = options;
+            //Text Appear
+            t = 0;
+            time = 0;
+            while (t < 1)
+            {
+                time += Time.deltaTime;
+                t = Mathf.InverseLerp(0, 0.75f, time);
+                text.rectTransform.position = new Vector3(Mathf.Lerp(rigth, center, t), text.rectTransform.position.y, text.rectTransform.position.z);
+                yield return null;
+            }
+            text.rectTransform.position = new Vector3(center, text.rectTransform.position.y, text.rectTransform.position.z);
+            yield return new WaitForSeconds(0.25f);
+        }
+
+        while (true)
+        {
+            if (Input.GetKey(KeyCode.Escape))
+            {
+                Application.Quit();
+            }
+            if (Input.GetKey(KeyCode.R))
+            {
+                SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+            }
+            yield return null;
+        }
     }
 }
